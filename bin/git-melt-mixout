@@ -1,0 +1,117 @@
+#!/bin/bash
+#!/usr/bin/env sh
+
+# this script will be started from git-melt
+
+
+local REPO_ID
+local REPO_PATH
+local GITDIR_PATH
+local CLONEDIR_PATH
+# local CMP_WKCPY_LST="work-cmp.lst"
+# local CMP_CLONE_LST="clone-cmp.lst"
+# local CMP_CONFLICST="conflicts.lst"
+
+RECACHE="no"
+PURGE="no"
+
+
+usage() {
+	echo
+	echo "usage: git melt [melt-options...] mixout [mixout-options...] <repo-id>"
+	echo 
+	echo "possible mixin-options are:"
+	echo "   -h | --help                 print this screen"
+	echo "   -r | --recache              projects will be recached. mixed in files will ignored by projects"
+	echo "                               you also may recache afterwards. see 'git melt recache -h'"
+	# echo "   -p | --purge                removes all files not used by any repository"
+	echo "                               by default recaching is done"
+	echo "   -n | --no-recache           no recaching after mixin. projects will see new files as untracked"
+}
+
+	
+purge() {
+	debug_msg "purging project"
+
+	debug_msg "creating file list in '$REPO_ID' > '$REPOS_DIR/$REPO_ID/$CMP_CLONE_LST'"
+	$(./$WORKTREE_PATH/git-$REPO_ID ls-files > "$REPOS_DIR/$REPO_ID/$CMP_CLONE_LST")
+}
+
+
+remove_files() {
+	debug_msg "removing files"
+	
+	rm -Rf "$REPO_PATH"
+	rm -f "$WORKTREE_PATH/git-$REPO_ID"
+}
+
+
+do_mixout() {
+	debug_msg "removing out $REPO_ID"
+
+	if [ "$PURGE" = "yes" ]; then
+		purge
+	fi
+	remove_files
+	
+	if [ "$RECACHE" == "yes" ]; then
+		debug_msg "recaching all projects"
+		. "$GITMELT_PATH/git-melt-recache"
+		recache
+	fi
+
+	normal_msg "git melt '$REPO_ID' mixed out"
+}
+
+
+mixout() {
+	while test $# -gt 0; do
+		case $1 in
+		"-h"|"--help")
+			usage
+			exit 0
+			;;
+			
+		"-n"|"--no-recache")
+			RECACHE="no"
+			;;
+			
+		"-r"|"--recache")
+			RECACHE="yes"
+			;;
+			
+		"-p"|"--purge")
+			PURGE="yes"
+			;;
+			
+		*)
+			if [ "$#" -ne 1 ]; then
+				errxit 31 "wrong number ($#) of parameters for mixout"
+			fi
+			
+			if [[ ${1:0:1} == "-" ]] ; then 
+				errxit 33 "unknown option" "$1"
+			fi
+
+			REPO_ID="$1"
+			shift
+			
+			REPO_PATH="$GITPOT_PATH/$REPO_ID"
+			GITDIR_PATH="$REPO_PATH/.git"
+			CLONEDIR_PATH="$REPO_PATH/clone"
+			debug_msg "REPO_PATH = $REPO_PATH"
+			debug_msg "GITDIR_PATH = $GITDIR_PATH"
+			debug_msg "CLONEDIR_PATH = $CLONEDIR_PATH"
+
+			if [ ! -d "$REPO_PATH" ]; then
+				errxit 32 "Repository '$REPO_ID' does not exist"
+			fi
+
+			do_mixout
+			
+			exit 0
+			;;
+		esac
+		shift
+	done
+}

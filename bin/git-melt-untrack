@@ -1,0 +1,82 @@
+#!/bin/bash
+#!/usr/bin/env sh
+
+# this script will be started from git-melt
+
+
+local REPO_ID
+local FILES_LST="files.lst"
+local UNTRACKED_LST=()
+local RECACHE="no"
+
+
+usage() {
+	echo
+	echo "usage: git melt [melt-options...] untrack [untrack-options...] <repo> <files...>"
+	echo
+	echo "Possible untrack-options are:"
+	echo "   -h | --help       print this screen"
+	echo "   -r | --recache    recaches all projects"
+}
+
+
+do_untrack() {
+	exclude_lst="$GITPOT_PATH/$REPO_ID/.git/info/exclude"
+	file_lst="$GITPOT_PATH/$REPO_ID/clone/$FILES_LST"
+	debug_msg "$exclude_lst"
+		
+	for item in "${UNTRACKED_LST[@]}"; do
+		debug_msg "removing $item"
+		$("$WORKTREE_PATH/git-$REPO_ID" rm -f "$item") || woanin_msg "removing '$item' from repository failed."
+		$("$WORKTREE_PATH/git-$REPO_ID" reset -f "$item") || woanin_msg "reseting '$item' from repository failed."
+	done
+	
+	echo -e "\n#GIT MELT UNTRACK inserted files:" >> "$exclude_lst"
+	for item in "${UNTRACKED_LST[@]}"; do
+		debug_msg "adding '$item' to exclude"
+		echo -e "$item" >> "$exclude_lst"
+	done
+		
+	if [ "$RECACHE" == "yes" ]; then
+		debug_msg "recaching all projects"
+		. "$GITMELT_PATH/git-melt-recache"
+		recache
+	fi
+}
+
+
+untrack() {
+    while test $# -gt 0; do	
+		case $1 in
+		"-h"|"--help")
+			usage
+			exit 0
+			;;
+			
+		"-r"|"--recache")
+			RECACHE=true
+			;;
+			
+		*)
+			if [ "$#" -lt 2 ]; then
+				errxit 61 "wrong number ($#) of parameters for track"
+			fi
+	
+			if [[ ${1:0:1} == "-" ]] ; then 
+				errxit 62 "unknown option" "$1"
+			fi
+			
+			REPO_ID="$1"
+			shift
+			
+			while test $# -gt 0; do
+				UNTRACKED_LST+=("$1")
+				shift
+			done
+			;;
+		esac
+		shift
+	done		
+
+	do_untrack
+}

@@ -1,0 +1,80 @@
+#!/bin/bash
+#!/usr/bin/env sh
+
+# this script will be started from git-melt
+
+
+local REPO_ID
+local FILES_LST="files.lst"
+local TRACKED_LST=()
+local RECACHE="no"
+
+
+usage() {
+	echo
+	echo "usage: git melt [melt-options...] track [track-options...] <repo> <files...>"
+	echo
+	echo "Possible track-options are:"
+	echo "   -h | --help       print this screen"
+	echo "   -r | --recache    recaches all projects"
+}
+
+
+do_track() {
+	exclude_lst="$GITPOT_PATH/$REPO_ID/.git/info/exclude"
+	file_lst="$GITPOT_PATH/$REPO_ID/clone/$FILES_LST"
+	debug_msg "$exclude_lst"
+	
+	for item in "${TRACKED_LST[@]}"; do
+		debug_msg "removing '$item' from exclude"
+		sed -i -e "s|^$item$||g" "$exclude_lst"
+	done
+	
+	for item in "${TRACKED_LST[@]}"; do
+		debug_msg "adding $item"
+		$("$WORKTREE_PATH/git-$REPO_ID" add "$item") || woanin_msg "adding '$item' to repository failed."
+	done
+	
+	if [ "$RECACHE" == "yes" ]; then
+		debug_msg "recaching all projects"
+		. "$GITMELT_PATH/git-melt-recache"
+		recache
+	fi
+}
+
+
+track() {
+    while test $# -gt 0; do	
+		case $1 in
+		"-h"|"--help")
+			usage
+			exit 0
+			;;
+			
+		"-r"|"--recache")
+			RECACHE=true
+			;;
+			
+		*)
+			if [ "$#" -lt 2 ]; then
+				errxit 51 "wrong number ($#) of parameters for track"
+			fi
+	
+			if [[ ${1:0:1} == "-" ]] ; then 
+				errxit 52 "unknown option" "$1"
+			fi
+			
+			REPO_ID="$1"
+			shift
+			
+			while test $# -gt 0; do
+				TRACKED_LST+=("$1")
+				shift
+			done
+			;;
+		esac
+		shift
+	done		
+
+	do_track
+}

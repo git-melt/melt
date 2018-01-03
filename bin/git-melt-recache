@@ -1,0 +1,157 @@
+#!/bin/bash
+#!/usr/bin/env sh
+
+# this script will be started from git-melt
+
+
+local CMP_WKCPY_LST="work-tmp-cmp.lst"
+local CMP_TRACKED_LST="all-tracked-files-cmp.lst"
+local WKCPY_DIFF="work-repo-diff.lst"
+local FILE_LST="files.lst"
+local REPO_LST=()
+
+
+usage() {
+	echo
+	echo "usage: git melt [melt-options...] recache [recache-options...] [repo-id's...]"
+	echo "keep repo-id's list empty to recache all repos."
+	echo
+	echo "Possible recache-options are:"
+	echo "   -h | --help    Print this screen"
+}
+
+
+create_file_list() {
+	debug_msg "creating file list in '$1' > '$2/$FILE_LST'"
+	c=("$WORKTREE_PATH/git-$1" "ls-files" ">" "$2/$FILE_LST")
+	$("$WORKTREE_PATH/git-$1" ls-files > "$2/$FILE_LST")
+}
+
+
+alter_ingnore_list() {
+	debug_msg "altering '$1'"
+		
+	current_repo=$1
+	current_gitdir_dir="$GITPOT_PATH/$current_repo/.git"
+	current_gitclone_dir="$GITPOT_PATH/$current_repo/clone"
+	
+	if [ ! -d "$GITPOT_PATH/$current_repo" ]; then
+		error_msg "repository '$current_repo' does not exist"
+		return
+	fi
+		
+	debug_msg "altering '$current_gitdir_dir/info/exclude' file"
+	
+	rm -Rf "$TEMP_PATH/$WKCPY_DIFF"
+	 
+	while IFS='' read -r line || [[ -n "$line" ]]; do
+		local found=$(grep -Fx "$line" "$current_gitclone_dir/$FILE_LST")
+		line=$(sed 's/[\[]/\\&/g' <<< "$line")
+		
+		if [ -z "$found" ]; then
+			echo -e "$line" >> "$TEMP_PATH/$WKCPY_DIFF"
+		fi
+	done < "$TEMP_PATH/$CMP_WKCPY_LST"
+	
+	if [ -f "$current_gitdir_dir/info/$GIT_ORIGINAL_EXCLUDE_FILE" ]; then
+		cp -f "$current_gitdir_dir/info/$GIT_ORIGINAL_EXCLUDE_FILE" "$current_gitdir_dir/info/exclude"
+	else
+		cp -f "$current_gitdir_dir/info/exclude" "$current_gitdir_dir/info/$GIT_ORIGINAL_EXCLUDE_FILE"
+	fi
+
+	echo -e "\n\n# BEGIN ####################################################################" >> "$current_gitdir_dir/info/exclude"
+	echo -e "#GIT MELT SPECIFIC FILES:" >> "$current_gitdir_dir/info/exclude"
+	echo -e "git-$current_repo" >> "$current_gitdir_dir/info/exclude"
+	# \todo .git-pot directory can differ via --potdir
+	echo -e "$GITPOT_PATH" >> "$current_gitdir_dir/info/exclude"
+	echo -e "$GITPOT_DIR" >> "$current_gitdir_dir/info/exclude"
+	echo -e "/$GITPOT_DIR" >> "$current_gitdir_dir/info/exclude"
+		
+	# \todo .gitignore files in subdirectories should also be considered
+	if [ -f "$current_gitclone_dir/.gitignore" ]; then
+		echo -e "\n#GIT MELT MERGED ORIGINAL .gitignore:" >> "$current_gitdir_dir/info/exclude"
+		while IFS='' read -r line || [[ -n "$line" ]]; do
+			echo -e "$line" >> "$current_gitdir_dir/info/exclude"
+		done < "$current_gitclone_dir/.gitignore"
+	fi
+	
+	echo -e "\n#GIT MELT FILES EXCLUDED FROM GIT" >> "$current_gitdir_dir/info/exclude"
+	while IFS='' read -r line || [[ -n "$line" ]]; do
+		echo -e "$line" >> "$current_gitdir_dir/info/exclude"
+	done < "$GITPOT_PATH/$REPOSEARCHEX_FILE"
+	
+	if [ -f "$TEMP_PATH/$WKCPY_DIFF" ]; then
+		echo -e "\n#GIT MELT FILES ALREADY EXISTING IN POT FOLDER" >> "$current_gitdir_dir/info/exclude"
+		while IFS='' read -r line || [[ -n "$line" ]]; do
+			echo -e "$line" >> "$current_gitdir_dir/info/exclude"
+		done < "$TEMP_PATH/$WKCPY_DIFF"
+	fi
+	
+	echo -e "\n\n# END ######################################################################" >> "$current_gitdir_dir/info/exclude"
+	
+	# clear git cache
+	debug_msg "clearing git cache '$current_repo'"
+	while IFS='' read -r line || [[ -n "$line" ]]; do
+		debug_msg "clearing git cache '$line'"
+		$("$WORKTREE_PATH/git-$current_repo" update-index --assume-unchanged "$line") || woanin_msg "clearing '$line' failed. probalby file does not exist in this repository"
+	done < "$GITPOT_PATH/$REPOSEARCHEX_FILE"
+}
+
+
+do_recache() {
+	debug_msg "recaching $GITPOT_PATH"
+	
+	# generate current working directory file list
+	debug_msg "creating file list of working tree"
+	find "$WORKTREE_PATH/" -type f -not -path "$GITPOT_DIR/*" -printf "%P\n" > "$TEMP_PATH/$CMP_WKCPY_LST"
+	
+	if [ -f "$TEMP_PATH/$CMP_TRACKED_LST" ]; then
+		rm -Rf "$TEMP_PATH/$CMP_TRACKED_LST"
+	fi
+	
+	for dir in "${GITPOT_PATH}"/*/; do
+		dir=${dir%*/}
+		dir="${dir##*/}"
+		local current_dir="$GITPOT_PATH/$dir/clone"
+		create_file_list "$dir" "$current_dir"
+		cat "$current_dir/$FILE_LST" >> "$TEMP_PATH/$CMP_TRACKED_LST"
+	done
+		
+	local listed="${#REPO_LST[@]}"
+	if [ "$listed" -eq "0" ]; then
+		debug_msg "inserting: "
+		for dir in "${GITPOT_PATH}"/*/; do
+		dir=${dir%*/}
+		dir="${dir##*/}"
+			debug_msg "           '$dir'"
+			REPO_LST+=("$dir")
+		done
+	fi
+	
+	for item in "${REPO_LST[@]}"; do
+		alter_ingnore_list $item
+	done
+}
+
+
+recache() {
+    while test $# -gt 0; do	
+		case $1 in
+		"-h"|"--help")
+			usage
+			exit 0
+			;;
+			
+		*)
+			if [[ ${1:0:1} == "-" ]] ; then 
+				errxit 41 "unknown option" "$1"
+			fi
+			
+			REPO_LST+=("$1")
+			;;
+		esac
+		shift
+	done		
+
+	do_recache
+}

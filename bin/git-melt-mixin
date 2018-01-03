@@ -1,0 +1,284 @@
+#!/bin/bash
+#!/usr/bin/env sh
+
+# this script will be started from git-melt
+
+
+local REPO_ID
+local CLONE_URL
+local REPO_PATH
+local GITDIR_PATH
+local CLONEDIR_PATH
+local CMP_WKCPY_LST="work-cmp.lst"
+local CMP_CLONE_LST="clone-cmp.lst"
+local CMP_CONFLICST="conflicts.lst"
+local RECACHE="yes"
+local REPO_COPY_FILE_EXTENSION=".repo_copyx"
+
+
+if [ -f "$GITPOT_PATH/$OPTIONS_FILE" ]; then
+	. "$GITPOT_PATH/$OPTIONS_FILE"
+fi
+
+
+catch() {
+	CODE="$@"
+	debug_msg "catch call: $CODE"
+	
+	case $CODE in
+	212)
+		debug_msg "repository id '$REPO_ID' already in use"
+		;;
+	*)
+		if [ ! "$DEBUG" == "yes" ] && [ -d "$REPO_PATH" ]; then
+			debug_msg "removing $REPO_PATH"
+			rm -Rf "$REPO_PATH"
+		fi
+		;;
+	esac
+	
+}
+
+
+usage() {
+	echo
+	echo "usage: git melt [melt-options...] mixin [mixin-options...] <repo-id> <repo source>"
+	echo 
+	echo "possible mixin-options are:"
+	echo "   -h | --help                 print this screen"
+	echo "   -r | --recache              projects will be recached. mixed in files will be ignored by projects"
+	echo "                               you also may recache afterwards. see 'git melt recache -h'"
+	echo "                               by default recaching is done"
+	echo "   -n | --no-recache           no recaching after mixin. projects will see new files as untracked"
+}
+
+
+create_repodir() {
+	debug_msg "creating $REPO_PATH"
+	
+	if [ ! -d "$GITPOT_PATH" ]; then
+		errxit 21 "pot directory '$GITPOT_PATH' does not exist." "you probably should run 'git melt init' first."
+	fi
+	
+	if [ -d "$REPO_PATH" ]; then
+		errxit 22 "repository id '$REPO_ID' already in use."
+	fi
+	
+	mkdir -p "$REPO_PATH"
+}
+
+
+clone_repo() {
+	debug_msg "cloning $CLONE_URL"
+	$(git clone --separate-git-dir "$GITDIR_PATH" "$CLONE_URL" "$CLONEDIR_PATH")
+	if [ "$?" -ne "0" ]; then
+		errxit 23 "git clone failed"
+	fi
+}
+
+
+check_conflicts() {
+	debug_msg "searching for conflicts"
+	
+	# generate current working directory file list
+	find "$WORKTREE_PATH/" -type f -not -path "$GITPOT_PATH/*" -printf "%P\n" > "$TEMP_PATH/$CMP_WKCPY_LST"
+	
+	# generate cloned files list
+	find "$CLONEDIR_PATH/" -type f $(printf "! -name %s " $(cat "$GITPOT_PATH/$REPOSEARCHEX_FILE")) -printf "%P\n" > "$TEMP_PATH/$CMP_CLONE_LST"
+	
+	rm -f "$TEMP_PATH/$CMP_CONFLICST" 2> /dev/null
+	while IFS='' read -r line || [[ -n "$line" ]]; do
+		local found=`grep "^$line$" "$TEMP_PATH/$CMP_WKCPY_LST"`
+		if [ ! -z "$found" ]; then
+			echo -e "$line" >> "$TEMP_PATH/$CMP_CONFLICST"
+		fi
+	done < "$TEMP_PATH/$CMP_CLONE_LST"
+}
+
+
+resolve_conflicts() {
+	if [ -f "$TEMP_PATH/$CMP_CONFLICST" ]; then
+		${color[green]}
+		echo "press h for help"
+		${color[reset]}
+				
+		while IFS='' read -r -u 6 line || [[ -n "$line" ]]; do
+			local action
+			local action_done=false
+			local working_copy="$WORKTREE_PATH/$line"
+			local repo_copy="$CLONEDIR_PATH/$line"
+			
+			echo -n "confliting file: "
+			${color[yellow]}
+			echo -n "'$line'"
+			${color[reset]}
+			echo -n ". - "
+			
+			if cmp -s "$working_copy" "$repo_copy"; then
+				normal_msg "files are identical. ignoring"
+				continue
+			fi
+			
+			while [ "$action_done" != "true" ]; do
+				${color[green]}
+				echo -n "action [h, w, x, d, gd, vd] : ";
+				${color[cyan]}
+				read action
+				${color[reset]}
+				
+				case $action in
+				"h")
+					echo "    h   - print this screen"
+					echo "    w   - keep the working copy"
+					echo "    x   - use repository copy"
+					echo "    d   - print diff result"
+					echo "    gd  - git diff"
+					echo "    vd  - vimdiff"
+					# todo add rename option
+					;;
+				
+				"w")
+					normal_msg "renaming '$repo_copy' to '$repo_copy.$REPO_ID$REPO_COPY_FILE_EXTENSION'"
+					mv "$repo_copy" "$repo_copy.$REPO_ID$REPO_COPY_FILE_EXTENSION"
+					sed -i "s|^$line|$line.$REPO_ID$REPO_COPY_FILE_EXTENSION|" "$TEMP_PATH/$CMP_CLONE_LST"
+					# echo -e -n "\n$line.$REPO_ID$REPO_COPY_FILE_EXTENSION" >> "$TEMP_PATH/$CMP_CLONE_LST"
+					action_done=true
+					;;
+					
+				"x")
+					normal_msg "working copy will be renamed to '$working_copy.WORKING_COPY$REPO_COPY_FILE_EXTENSION'"
+					mv "$working_copy" "$working_copy.WORKING_COPY$REPO_COPY_FILE_EXTENSION"
+					action_done=true
+					;;
+					
+				"d")
+					diff "$working_copy" "$repo_copy"
+					;;
+					
+				"gd")
+					git diff --no-index "$working_copy" "$repo_copy"
+					;;
+					
+				"vd")
+					$(vimdiff "$working_copy" "$repo_copy")
+					;;
+					
+				*)
+					error_msg "unknown action $action"
+					;;
+				esac
+			done
+		done 6< "$TEMP_PATH/$CMP_CONFLICST"
+	fi
+}
+
+
+move_files() {
+	debug_msg "moving files"
+	
+	while IFS='' read -r line || [[ -n "$line" ]]; do
+		local curdir=$(dirname "$line")
+		# local curfil=$(basename "$line")
+		mkdir -p "$WORKTREE_PATH/$curdir"
+		mv "$CLONEDIR_PATH/$line" "$WORKTREE_PATH/$line"
+	done < "$TEMP_PATH/$CMP_CLONE_LST"
+}
+
+
+create_script() {
+	if [ ! "$CREATE_SCRIPT" == "no" ]; then
+		local scriptname="$WORKTREE_PATH/git-$REPO_ID"
+	
+		debug_msg "creating script '$scriptname'"
+		
+		cp "$SHARE_PATH/template-script" "$scriptname"
+		sed -i "s|__0815_TEMPLATE_SCRIPT_GITDIR_PATH__|$GITDIR_PATH|g" "$scriptname"
+		sed -i "s|__0815_TEMPLATE_SCRIPT_WORKTREE_PATH__|$WORKTREE_PATH|g" "$scriptname"
+				
+		chmod +x "$scriptname"
+	fi	
+}
+
+
+create_alias() {
+	if [ "$CREATE_ALIAS" == "yes" ] && [ ! -z ${ALIAS_FILE+x} ]; then
+		local scriptname="$WORKTREE_PATH/git-$REPO_ID"
+	
+		debug_msg "creating alias in '$ALIAS_FILE'"
+		normal_msg "note: aliases are global setting. it is not recomended to use aliases"
+		echo -e "\nalias git-$REPO_ID=\"git --git-dir='$GITDIR_PATH' --work-tree='$WORKTREE_PATH'\"" >> "$ALIAS_FILE" || woanin_msg "creating alias failed"
+	else
+		${color[cyan]}
+		echo -e "alias line: alias git-$REPO_ID=\"git --git-dir='$GITDIR_PATH' --work-tree='$WORKTREE_PATH'\""
+		${color[reset]}
+	fi	
+}
+
+
+do_mixin() {
+	debug_msg "mixing in $REPO_ID"
+	debug_msg "temp dir = '$TEMP_PATH'"
+
+	create_repodir
+	clone_repo
+	check_conflicts
+	resolve_conflicts
+	move_files
+	create_script
+	create_alias
+	
+	if [ "$RECACHE" == "yes" ]; then
+		debug_msg "recaching all projects"
+		. "$GITMELT_PATH/git-melt-recache"
+		recache
+	fi
+
+	normal_msg "git melt '$REPO_ID' mixed in"
+}
+
+
+mixin() {
+	while test $# -gt 0; do
+		case $1 in
+		"-h"|"--help")
+			usage
+			exit 0
+			;;
+
+		"-n"|"--no-recache")
+			RECACHE="no"
+			;;
+			
+		"-r"|"--recache")
+			RECACHE="yes"
+			;;
+			
+		*)
+			if [ "$#" -ne 2 ]; then
+				errxit 24 "wrong number of parameters"
+			fi
+			
+			if [[ ${1:0:1} == "-" ]] ; then 
+				errxit 25 "unknown option" "$1"
+			fi
+			
+			REPO_ID="$1"
+			shift
+			CLONE_URL="$1"
+			shift
+
+			REPO_PATH="$GITPOT_PATH/$REPO_ID"
+			GITDIR_PATH="$REPO_PATH/.git"
+			CLONEDIR_PATH="$REPO_PATH/clone"
+			debug_msg "REPO_PATH = $REPO_PATH"
+			debug_msg "GITDIR_PATH = $GITDIR_PATH"
+			debug_msg "CLONEDIR_PATH = $CLONEDIR_PATH"
+			
+			do_mixin
+			
+			exit 0
+			;;
+		esac
+		shift
+	done
+}

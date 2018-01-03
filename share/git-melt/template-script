@@ -1,0 +1,4 @@
+#!/bin/bash
+#!/usr/bin/env sh
+
+git --git-dir="__0815_TEMPLATE_SCRIPT_GITDIR_PATH__" --work-tree="__0815_TEMPLATE_SCRIPT_WORKTREE_PATH__" "$@"

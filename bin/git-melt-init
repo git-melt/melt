@@ -1,0 +1,166 @@
+#!/bin/bash
+#!/usr/bin/env sh
+
+# this script will be started from git-melt
+
+
+local DEFAULT_IGNORE="yes"
+local CUSTOM_IGNORE_LIST=()
+local CREATE_ALIAS="no"
+local CREATE_SCRIPT="yes"
+local EDIT_IGNORE="no"
+local EDIT_OPTIONS="no"
+
+
+usage() {
+	${color[reset]}
+	echo
+	echo "usage: git melt [melt-options...] init [init-options...]"
+	echo
+	echo "possible init-options are:"
+	echo "   -h | --help                           print this screen"
+	echo "   -i | --ignore             <filename>  insert file into ignore list (.git, .gitignore and some other are defaults)"
+	echo "   -p | --purge-ignore-list  <filename>  removes the default or existing ignore list"
+	echo "   -e | --edit-ignore-list               edit the list of files to be excluded from merging several repositories"
+	echo
+	echo "        --dont-create-script             disables creation of the script for simple usage"
+	echo "   -a | --create-alias                   creates an alias for simple usage"
+	echo "        --alias-file [path/to/aliases]   file where the alias will be appended (default ~/.profile)"
+	echo "   -o | --edit-options                   edit the options used for other git melt commands"
+	echo
+	echo "note: order of parameters matters. best, use order as it appears on this help page."
+	echo
+	${color[reset]}
+}
+
+
+edit_file() {
+	if [ -z ${VISUAL+x} ]; then
+		normal_msg "VISUAL not defined"
+		if [ -z ${EDITOR+x} ]; then
+			woanin_msg "EDITOR not defined. by default using vi editor"
+			VISUAL="vi"
+		else
+			normal_msg "using $EDITOR"
+			VISUAL="$EDITOR"
+		fi
+	fi
+
+	local cmd=("$VISUAL")
+	cmd=("${cmd[@]}" "$1")
+	debug_msg "executing: ${cmd[@]}"
+	"${cmd[@]}"	
+}
+
+
+do_edit_ignore() {
+	edit_file "$GITPOT_PATH/$REPOSEARCHEX_FILE"
+}
+
+
+do_edit_options() {
+	edit_file "${GITPOT_PATH}/${OPTIONS_FILE}"
+}
+
+
+do_init() {	
+	if [ -d "$GITPOT_PATH" ]; then
+		woanin_msg "'$GITPOT_PATH' already existent, reinitializing"
+	fi
+	
+	debug_msg "creating git melt directories"
+	mkdir -p "$GITPOT_PATH"
+	mkdir -p "$WORKTREE_PATH"
+	
+	debug_msg "creating ignore list"
+	if [ "$DEFAULT_IGNORE" == "yes" ] && [ ! -f "$GITPOT_PATH/$REPOSEARCHEX_FILE" ]; then
+		cp "$SHARE_PATH/template-$REPOSEARCHEX_FILE" "$GITPOT_PATH/$REPOSEARCHEX_FILE"
+	fi
+	for item in "${CUSTOM_IGNORE_LIST[@]}"; do
+		echo -e "${item}" >> "$GITPOT_PATH/$REPOSEARCHEX_FILE"
+	done
+	if [ "$EDIT_IGNORE" == "yes" ]; then
+		do_edit_ignore
+	fi
+
+	debug_msg "creating options list"
+	if [ ! -f "$GITPOT_PATH/$OPTIONS_FILE" ]; then
+		cp "$SHARE_PATH/template-$OPTIONS_FILE" "$GITPOT_PATH/$OPTIONS_FILE"
+	fi
+	if [ "$CREATE_ALIAS" == "yes" ]; then
+		sed -i '/^CREATE_ALIAS=/{h;s/=.*/=\"yes\"/};${x;/^$/{s//CREATE_ALIAS=\"yes\"/;H};x}' "$GITPOT_PATH/$OPTIONS_FILE"
+	fi
+	if [ ! -z ${ALIAS_FILE+x} ]; then
+		# cant figure out how to use sed for this crap, like 3 lines above...
+		# sed -i "/^ALIAS_FILE=/{h;s|=.*|=\"$ALIAS_FILE\"|};${x;|^$|asdf;x}" "$GITPOT_PATH/$OPTIONS_FILE"
+		
+		sed -i "/^ALIAS_FILE=/d" "$GITPOT_PATH/$OPTIONS_FILE"
+		echo -e "ALIAS_FILE=\"$ALIAS_FILE\"" >> "$GITPOT_PATH/$OPTIONS_FILE"
+	fi
+	if [ "$EDIT_OPTIONS" == "yes" ]; then
+		do_edit_options
+	fi
+	
+	normal_msg "git melt initialized"
+}
+
+
+init() {
+    while test "$#" -gt "0"; do
+		case $1 in
+		"-h"|"--help")
+			usage
+			exit 0
+			;;
+			
+		"-i"|"--ignore")
+			shift
+			CUSTOM_IGNORE_LIST+=("$1")
+			;;
+			
+		"-p"|"--purge-ignore-list")
+			DEFAULT_IGNORE="no"
+			unset CUSTOM_IGNORE_LIST
+			if [ -f "$GITPOT_PATH/$REPOSEARCHEX_FILE" ] ; then
+				rm "$GITPOT_PATH/$REPOSEARCHEX_FILE"
+			fi
+			;;
+			
+		"-e"|"--edit-ignore-list")
+			EDIT_IGNORE="yes"
+			;;
+
+		"-o"|"--edit-options")
+			EDIT_OPTIONS="yes"
+			;;
+
+		"--dont-create-script")
+			CREATE_SCRIPT="no"
+			;;
+			
+		"-a"|"--create-alias")
+			CREATE_ALIAS="yes"
+			;;
+			
+		"--alias-file")
+			shift
+			if [ "$#" -eq 0 ]; then
+				errxit 12 "missing alias file"
+			else
+				ALIAS_FILE="$1"
+			fi
+			;;
+
+		*)
+			if [[ ${1:0:1} == "-" ]] ; then 
+				errxit 13 "unknown option" "$1"
+			fi
+			
+			errxit 11 "unknown parameter for init" "parameter : '$1'"
+			;;
+		esac
+		shift
+	done		
+
+	do_init
+}

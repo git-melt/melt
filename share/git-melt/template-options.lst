@@ -1,0 +1,4 @@
+CREATE_SCRIPT="yes"
+CREATE_ALIAS="no"
+ALIAS_FILE="$HOME/.profile"
+REPO_COPY_FILE_EXTENSION=".repo_copy"

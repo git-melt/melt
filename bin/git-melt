@@ -1,0 +1,277 @@
+#!/bin/bash
+#!/usr/bin/env sh
+
+# enable debug mode
+if [ "$DEBUG" = "yes" ]; then
+  DEBUG_LOG="yes"
+  set -x
+fi
+
+
+VERSION="0.3.0"
+
+GITPOT_DIR=".git-pot"
+REPOSEARCHEX_FILE="global-ignore.lst"
+OPTIONS_FILE="options.lst"
+GIT_ORIGINAL_EXCLUDE_FILE=".git.info.exclude.original.file"
+
+GITMELT_PATH=""
+WORKTREE_PATH=""
+GITPOT_PATH=""
+
+LCL_WORKTREE_PATH="$PWD"
+LCL_GITPOT_PATH="$PWD/$GITPOT_DIR"
+
+SHARE_PATH="/usr/share/git-melt/"
+TEMP_PATH=`mktemp -d 2>/dev/null || mktemp -d -t 'mytmpdir'`
+
+
+declare -A color
+color[reset]="tput sgr0"
+color[black]="tput setaf 0"
+color[red]="tput setaf 1"
+color[green]="tput setaf 2"
+color[yellow]="tput setaf 3"
+color[blue]="tput setaf 4"
+color[magenta]="tput setaf 5"
+color[cyan]="tput setaf 6"
+color[white]="tput setaf 7"
+color[bold]="tput bold"
+color[dim]="tput dim"
+color[_]="tput smul"
+
+
+debug_msg() {
+  if [ "$DEBUG_LOG" == "yes" ]; then
+    ${color[magenta]};
+    echo -e "$@"
+    ${color[reset]}
+  fi
+}
+
+
+normal_msg() {
+  ${color[green]};
+  echo "$@"
+  ${color[reset]}
+}
+
+
+woanin_msg() {
+  ${color[yellow]};
+  echo "$@"
+  ${color[reset]}
+}
+
+
+error_msg() {
+  ${color[red]}
+  ${color[bold]}
+  echo "$@"
+  ${color[reset]}
+}
+
+
+errxit() {
+  local errcode=$1
+  echo
+  error_msg "error   : $1"; shift
+  error_msg "message : $1"; shift
+  
+    while test $# -gt 0; do
+    error_msg "        : $1"
+    shift
+  done
+  
+  echo
+  usage
+  
+  exit $errcode
+}
+
+
+at_exit() {
+  local RESULT="$?"
+  debug_msg "exit call: " "$RESULT"
+
+  if [ "$RESULT" -ne "0" ]; then
+    if [ -n "$(type -t catch)" ] && [ "$(type -t catch)" = function ]; then
+        debug_msg "calling catch $RESULT"
+        catch "$RESULT"
+    else
+      debug_msg "no catch function defined"
+    fi
+  fi
+
+  if [ ! "$DEBUG_LOG" == "yes" ] && [ -d "$TEMP_PATH" ]; then
+    rm -Rf "$TEMP_PATH"
+  fi
+  
+  ${color[reset]}
+  exit "$RESULT"
+}
+
+
+version() {
+  echo "melt git plugin v$VERSION"
+  echo
+}
+
+
+usage() {
+  ${color[reset]}
+  echo
+  echo "usage:[DEBUG=yes|DEBUG_LOG=yes] [VISUAL=nano] git melt [options...] <subcommand>"
+  echo
+  echo "Possible options are:"
+  echo "   -h | --help                    print this screen"
+  echo "   -v | --version                 print the version"
+  echo "        --potdir     <directory>  directory where git melt stores internal data"
+  echo "        --work-tree  <directory>  directory where git melt stores merges of the repositories"
+  echo
+  echo "available subcommands are:"
+  echo "   init     [options]                           initialize a new git melting pot"
+  echo "   mixin    [options]  <repo-id> <repo source>  mix-in a new repository"
+  echo "   mixout   [options]  <repo-id>                remove an existing repository"
+  echo "   recache  [options]  [repo-id]                recaches the given id. if no id provided, all repositories are recached"
+  echo "   track    [options]  <repo-id> <files>...     add the list of files to the repository for tracking"
+  echo "   untrack  [options]  <repo-id> <files>...     removes the list of files from the repository for tracking"
+  echo
+  echo
+  echo "all subcommands have the -h | --help option for more details on the subcommand"
+  echo "note: order of parameters matters. best use order as it appears on this help page"
+  echo
+  echo "use DEBUG=yes or DEBUG_LOG=yes for debugging the scripts"
+  echo
+  echo "use VISUAL=<your favourite editor> to change the default editor. by default VISUAL is used,"
+  echo "if not defined EDITOR is used, if not defined vi is tried to be used."
+  echo
+  ${color[reset]}
+}
+
+
+main() {
+  debug_msg "starting git melt main script"
+      
+    while test $# -gt 0; do
+    case $1 in
+    "-h"|"--help")
+      usage
+      exit 0
+      ;;
+      
+    "-v"|"--version")
+      version
+      exit 0
+      ;;
+    
+    "--potdir")
+      shift
+      if [ "$#" -eq 0 ]; then
+        errxit 2 "missing pot dir"
+      else
+        LCL_GITPOT_PATH="$1"
+        debug_msg "pot path $LCL_GITPOT_PATH"
+      fi
+      ;;
+      
+    "--work-tree")
+      shift
+      if [ "$#" -eq 0 ]; then
+        errxit 3 "missing worktree dir"
+      else
+        LCL_WORKTREE_PATH="$1"
+        debug_msg "worktree path $LCL_WORKTREE_PATH"
+      fi
+      ;;
+      
+    *)      
+      if [ "$#" -lt 1 ]; then
+        errxit 1 "to few parameters"
+      fi
+      
+      if [[ ${1:0:1} == "-" ]] ; then 
+        errxit 6 "unknown option" "$1"
+      fi
+  
+      debug_msg "creating tmp folder '$TEMP_PATH'"
+      mkdir -p "$TEMP_PATH"
+      
+      SUBCOMMAND="$1"
+      shift
+      
+      if [ -d "$LCL_WORKTREE_PATH" ]; then
+        WORKTREE_PATH=$(realpath "$LCL_WORKTREE_PATH")
+      elif [ "$SUBCOMMAND" != "init" ]; then
+        errxit 4 "worktree path '$LCL_WORKTREE_PATH' does not exist"
+      else
+        WORKTREE_PATH="$LCL_WORKTREE_PATH"
+      fi
+
+      if [ -d "$LCL_GITPOT_PATH" ]; then
+        GITPOT_PATH=$(realpath "$LCL_GITPOT_PATH")
+      elif [ "$SUBCOMMAND" != "init" ]; then
+        errxit 5 "git pot path '$LCL_GITPOT_PATH' does not exist"
+      else
+        GITPOT_PATH="$LCL_GITPOT_PATH"
+      fi
+      
+      debug_msg "real worktree path '$WORKTREE_PATH'"
+      debug_msg "real pot path '$GITPOT_PATH'"
+      
+      debug_msg "calling $SUBCOMMAND"
+      . "$GITMELT_PATH/git-melt-$SUBCOMMAND"
+      ${SUBCOMMAND} $@
+      
+      exit 0
+      ;;
+    esac
+    shift
+  done
+  
+  woanin_msg "no command provided. nothing happend."
+  usage
+  exit 0
+}
+
+
+trap "at_exit" EXIT
+
+
+# Setup the GITMELT_PATH for different operating systems.
+case $(uname -s) in
+Linux)
+  GITMELT_PATH=$(dirname "$(readlink -e "$0")")
+  ;;
+FreeBSD|OpenBSD|NetBSD)
+  FLAGS_GETOPT_CMD='/usr/local/bin/getopt'
+  GITMELT_PATH=$(dirname "$(realpath "$0")")
+  ;;
+Darwin)
+  PRG="$0"
+  while [ -h "$PRG" ]; do
+    link=$(readlink "$0")
+    if expr "$link" : '/.*' > /dev/null; then
+      PRG="$link"
+    else
+      PRG="$(dirname "$PRG")/$link"
+    fi
+  done
+  GITMELT_PATH=$(dirname "$PRG")
+  ;;
+*MINGW*)
+  pwd () {
+    builtin pwd -W
+  }
+  GITMELT_PATH=$(realpath "$(dirname "$(echo "/$0" | sed -e 's|\\|/|g' -e 's|:||')")")
+
+  ;;
+*)
+  # The sed expression here replaces all backslashes by forward slashes.
+  # This helps our Windows users, while not bothering our Unix users.)
+  GITMELT_PATH=$(realpath "$(dirname "$(echo "/$0" | sed -e 's|\\|/|g' -e 's|:||')")")
+  ;;
+esac
+
+
+main "$@"
