@@ -33,7 +33,7 @@ $ git melt --help
 ```
 Mixin a project. In this examples we will use the test projects.
 ```sh
-$ git melt mixin test1 https://github.com/michail-peterlis/git-melt-test_1.git
+$ git melt mixin test1 https://github.com/git-melt/melt-test_1.git
 ```
 Command mixin will (as you expect) mix in the repository into the melt folder. `test1` is the idetifier used to run commands on this project. This will also create a script `git-test1`. To run git specific commands on this repository, use this newly created script.
 ```sh
