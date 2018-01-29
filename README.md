@@ -1,6 +1,6 @@
 # git-melt
 Merge multiple git projects in your working copy.
-git-melt consists of a few bash scripts to extend git .
+git-melt consists of a few bash scripts to extend git.
 
 ## Installation
 Download the repository, copy the files from bin to /usr/bin and share to /usr/share. Permit the scripts to be executed.
@@ -27,7 +27,7 @@ $ git melt init -e
 # LICENCE
 ```
 By doing so, you will see some files are already part of the list by default.
-This will call the default editor (defined by variable VISUAL) to edit the ignore list. for more details see:
+This will call the default editor (defined by variable VISUAL) to edit the ignore list. For more details see:
 ```sh
 $ git melt --help
 ```
@@ -35,14 +35,14 @@ Mixin a project. In this examples we will use the test projects.
 ```sh
 $ git melt mixin test1 https://github.com/git-melt/melt-test_1.git
 ```
-Command mixin will (as you expect) mix in the repository into the melt folder. `test1` is the idetifier used to run commands on this project. This will also create a script `git-test1`. To run git specific commands on this repository, use this newly created script.
+Command mixin will (as you expect) mix in the repository into the melt folder. `test1` is the identifier used to run commands on this project. This will also create a script `git-test1`. To run git specific commands on this repository, use this newly created script.
 ```sh
 $ ./git-test1 status
 ```
 Repeat for all your required projects.
 
-## Trobleshooting
-You can enable logging by:
+## Troubleshooting
+Enable logging by:
 ```sh
 $ DEBUG_LOG=yes git melt <command>
 # or even more log by
