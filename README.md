@@ -11,7 +11,7 @@ $ # create and/or change to an empty directory
 $ git clone https://github.com/git-melt/melt.git .
 $ mkdir /usr/share/git-melt/
 $ cp bin/git-melt* /usr/bin/
-$ cp -r share/git-melt /usr/share/git-melt
+$ cp -r share/git-melt/* /usr/share/git-melt
 $ chmod 755 /usr/bin/git-melt*
 $ chmod 755 /usr/share/git-melt/*
 ```
