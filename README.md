@@ -5,10 +5,13 @@ git-melt consists of a few bash scripts to extend git.
 ## Installation
 Download the repository, copy the files from bin to /usr/bin and share to /usr/share. Permit the scripts to be executed.
 ```sh
-$ git clone https://github.com/michail-peterlis/git-melt.git .
+$ # for operating in /usr/* root privileges are probably required
+$ # sudo su  or su or prefix every command with sudo. depending on your distribution
+$ # create and/or change to an empty directory
+$ git clone https://github.com/git-melt/melt.git .
 $ mkdir /usr/share/git-melt/
 $ cp bin/git-melt* /usr/bin/
-$ cp share/git-melt/template-script /usr/share/git-melt/
+$ cp -r share/git-melt /usr/share/git-melt
 $ chmod 755 /usr/bin/git-melt*
 $ chmod 755 /usr/share/git-melt/*
 ```
@@ -27,7 +30,7 @@ $ git melt init -e
 # LICENCE
 ```
 By doing so, you will see some files are already part of the list by default.
-This will call the default editor (defined by variable VISUAL) to edit the ignore list. For more details see:
+This will call the default editor (defined by variable VISUAL) for editing the ignore list. For more details see:
 ```sh
 $ git melt --help
 ```
